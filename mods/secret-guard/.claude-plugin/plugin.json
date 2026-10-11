@@ -1,0 +1,7 @@
+{
+  "name": "secret-guard",
+  "version": "0.1.0",
+  "description": "Oscura i segreti (token, chiavi, password) nei risultati degli strumenti prima che Claude li legga",
+  "author": { "name": "enrik" },
+  "types": "./types/index.d.ts"
+}

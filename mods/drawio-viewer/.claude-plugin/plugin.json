@@ -1,0 +1,7 @@
+{
+  "name": "drawio-viewer",
+  "version": "0.1.0",
+  "description": "Anteprima dei diagrammi draw.io nel pannello, aggiornata quando Claude o tu li modificate",
+  "author": { "name": "enrik" },
+  "types": "./types/index.d.ts"
+}

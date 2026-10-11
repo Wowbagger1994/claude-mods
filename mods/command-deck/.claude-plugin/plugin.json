@@ -1,0 +1,9 @@
+{
+  "name": "command-deck",
+  "version": "0.1.0",
+  "description": "Da fare: quello che ti resta da fare dopo le risposte di Claude, con i comandi da copiare e quelli negati dai permessi",
+  "author": {
+    "name": "enrik"
+  },
+  "types": "./types/index.d.ts"
+}

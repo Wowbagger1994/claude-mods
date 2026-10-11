@@ -1,0 +1,9 @@
+{
+  "name": "arcade",
+  "version": "0.1.0",
+  "description": "Otto giochi da fare mentre Claude lavora (Snake, 2048, Claude runner, Tetris…), con i record e la pausa quando Claude finisce",
+  "author": {
+    "name": "enrik"
+  },
+  "types": "./types/index.d.ts"
+}

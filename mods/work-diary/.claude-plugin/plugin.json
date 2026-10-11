@@ -1,0 +1,7 @@
+{
+  "name": "work-diary",
+  "version": "0.1.0",
+  "description": "Diario e calendario del lavoro fatto con Claude: settimana, mese e giornata, con i riassunti",
+  "author": { "name": "enrik" },
+  "types": "./types/index.d.ts"
+}

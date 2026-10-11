@@ -1,0 +1,37 @@
+{
+  "name": "enrik-mods",
+  "description": "Le mod di Claude Code di enrik: segreti, cose da fare, verifiche, diario, diff, draw.io e giochi",
+  "owner": {
+    "name": "enrik"
+  },
+  "plugins": [
+    {
+      "name": "secret-guard",
+      "source": "./mods/secret-guard"
+    },
+    {
+      "name": "command-deck",
+      "source": "./mods/command-deck"
+    },
+    {
+      "name": "checks",
+      "source": "./mods/checks"
+    },
+    {
+      "name": "work-diary",
+      "source": "./mods/work-diary"
+    },
+    {
+      "name": "diff-checker",
+      "source": "./mods/diff-checker"
+    },
+    {
+      "name": "drawio-viewer",
+      "source": "./mods/drawio-viewer"
+    },
+    {
+      "name": "arcade",
+      "source": "./mods/arcade"
+    }
+  ]
+}

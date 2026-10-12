@@ -8,10 +8,22 @@ const RUNNERS = new Set(['python3', 'python', 'pytest', 'go', 'npm', 'npx', 'bun
 const HEAVY = /\b(?:docker|compose|install|npm\s+ci|deploy|ssh|scp|curl|wget|sudo|apt|brew|push|publish|login|secrets?|audit|build|smoke)\b/i
 /** A step allowed to fail is no check. */
 const ALLOWED_TO_FAIL = /\|\|\s*true\s*$/
+/**
+ * Commands that put a job's dependencies in place, which its other steps count on.
+ * A laptop may lack what Python, the system or another language installs: such a
+ * job is left to the CI whole.
+ */
+const INSTALLS_DEPENDENCIES =
+  /\b(?:pip3?\s+install|uv\s+(?:pip\s+install|sync)|poetry\s+install|pipenv\s+(?:install|sync)|conda\s+(?:install|env\s+(?:create|update))|bundle\s+install|composer\s+install|apt(?:-get)?\s+install|brew\s+install)\b/
+/** JavaScript's installs land in `node_modules`: with it in the repository, they are already here. */
+const INSTALLS_NODE_MODULES = /\b(?:npm\s+(?:ci|install|i)|yarn\s+install|pnpm\s+(?:install|i)|bun\s+install)\b/
 
 const STEP_START = /^(\s*)-\s+/
 const NAME = /^\s*(?:-\s+)?name:\s*(.+?)\s*$/
 const RUN = /^\s*(?:-\s+)?run:\s*(.+?)\s*$/
+const JOBS = /^jobs:\s*(?:#.*)?$/
+const COMMENT = /^\s*#/
+const indentOf = (line: string) => line.length - line.trimStart().length
 
 const unquote = (text: string) => text.replace(/^(['"])(.*)\1$/, '$2')
 
@@ -24,14 +36,39 @@ export const isFastCommand = (command: string): boolean => {
 /** The Mac has no bare `python`: the CI's `python` is its `python3` here. */
 export const forThisMac = (command: string): string => command.replace(/^python(\s)/, 'python3$1')
 
+/** The lines of each job under `jobs:`, blank lines and comments left out. */
+export const jobsOf = (workflow: string): string[][] => {
+  const jobs: string[][] = []
+  let jobIndent: number | null = null
+  let isInJobs = false
+  for (const line of workflow.split('\n')) {
+    if (line.trim() === '' || COMMENT.test(line)) continue
+    if (JOBS.test(line)) {
+      isInJobs = true
+      continue
+    }
+    const indent = indentOf(line)
+    if (indent === 0) isInJobs = false
+    if (!isInJobs) continue
+    jobIndent ??= indent
+    if (indent === jobIndent) jobs.push([line])
+    else jobs[jobs.length - 1]?.push(line)
+  }
+  return jobs
+}
+
 /**
- * The fast steps of a workflow: those whose `run:` is one line a laptop runs as is.
- * A many-line `run: |` (a script, a service) is left to the CI: `|` is no runner.
+ * A job that installs what its steps need and may be missing here: `pip install`
+ * and the like always; `npm ci` and the like only without `node_modules`.
  */
-export const ciCommands = (workflow: string): CheckCommand[] => {
+export const isInstallingJob = (job: readonly string[], hasNodeModules: boolean): boolean =>
+  job.some(line => INSTALLS_DEPENDENCIES.test(line) || (!hasNodeModules && INSTALLS_NODE_MODULES.test(line)))
+
+/** A job's fast steps: those whose `run:` is one line a laptop runs as is. */
+const fastSteps = (job: readonly string[]): CheckCommand[] => {
   const found: CheckCommand[] = []
   let name: string | null = null
-  for (const line of workflow.split('\n')) {
+  for (const line of job) {
     if (STEP_START.test(line)) name = null
     const named = NAME.exec(line)
     if (named !== null) name = unquote(named[1]!)
@@ -42,6 +79,16 @@ export const ciCommands = (workflow: string): CheckCommand[] => {
   }
   return found
 }
+
+/**
+ * The fast steps of a workflow, job by job. A many-line `run: |` (a script, a
+ * service) is left to the CI: `|` is no runner. So is every step of a job that
+ * installs dependencies this repository lacks: the step would fail for that.
+ */
+export const ciCommands = (workflow: string, hasNodeModules: boolean): CheckCommand[] =>
+  jobsOf(workflow)
+    .filter(job => !isInstallingJob(job, hasNodeModules))
+    .flatMap(fastSteps)
 
 /** Workflow files worth reading for checks, by name. */
 export const isCheckWorkflow = (fileName: string, text: string): boolean =>

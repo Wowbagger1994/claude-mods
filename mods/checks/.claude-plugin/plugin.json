@@ -1,6 +1,6 @@
 {
   "name": "checks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Verifiche: i test veloci a fine risposta e la CI su GitHub, in un pannello e nella riga di stato",
   "author": { "name": "enrik" },
   "types": "./types/index.d.ts"

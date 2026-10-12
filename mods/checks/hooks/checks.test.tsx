@@ -150,6 +150,7 @@ test('an edit in a repo brings it in; the end of the answer runs its CI’s fast
   expect(text).toContain('feature/x')
   expect(text).toContain('i passi veloci di .github/workflows/ci.yml')
   expect(text).toContain('✓ 2/2')
+  expect(text).toContain('✓ tutto verde')
   expect(text).toContain(`commit ${SHA.slice(0, 7)}`)
   expect(w.statuses.at(-1)).toBe('✓ test 2/2 · CI ✓ 1/1 · /checks')
 
@@ -187,8 +188,10 @@ test('a failing check is told, shown with its last lines, and handed to Claude w
   expect(w.statuses.at(-1)).toContain('✗ test 1/2')
   const ui = await mountPane($)
   expect(await paneText(ui)).toContain('AssertionError: 2 != 3')
+  expect(await paneText(ui)).toContain('✗ 1 da sistemare')
   const ask = (await ui.findAll({ type: 'Button' })).find(b => String(b.props.key).startsWith('ask-local:'))
   expect(ask?.props.hotkey).toBe('c')
+  expect(ask?.props.variant).toBe('primary')
   expect((await ui.findAll({ type: 'Button' })).find(b => b.props.key === 'run:/r/app')?.props.hotkey).toBe('e')
 
   await press($, w, String(ask?.props.key))
@@ -250,7 +253,11 @@ test('a PR’s checks are asked again while pending; a failure is told once, the
   expect(w.toasts).toHaveLength(1)
 
   const ui = await mountPane($)
-  expect(await paneText(ui)).toContain('PR #7 Diario')
+  const text = await paneText(ui)
+  expect(text).toContain('PR #7 Diario')
+  // One workflow only: its name is not repeated before each check.
+  expect(text).toContain('✗ 1/2')
+  expect(text).not.toContain('CI · lint')
   w.log = 'lint\tRun\tE501 line too long\nlint\tRun\tError: Process completed with exit code 1.'
   await press($, w, 'ask-ci:/r/app:0')
   expect(w.calls).toContain('gh run view 99 --log-failed')
@@ -294,6 +301,40 @@ test('the repository’s .claude/checks.json wins', async ($, on) => {
   await edit($, '/r/app/src/a.py')
   await endTurn($, w)
   expect(bashCalls(w)).toEqual(['make check'])
+})
+
+test('a job that installs dependencies runs only when they are here: npm ci with node_modules, pip install never', async ($, on) => {
+  const w = fakeSession(on)
+  w.files = {
+    '/r/app/.github/workflows/ci.yml': `name: CI
+jobs:
+  web:
+    steps:
+      - run: npm ci
+      - run: npm run lint
+  py:
+    steps:
+      - run: pip install -r requirements.txt
+      - run: python -m pytest
+`,
+    '/r/app/package.json': '{"scripts":{"test":"vitest"}}',
+  }
+  w.dirs = { '/r/app/.github/workflows': ['ci.yml'], '/r/app': ['.github', 'package.json', 'src'] }
+  await start($, w)
+  await edit($, '/r/app/src/a.ts')
+  await endTurn($, w)
+  // No node_modules: neither job is copied, and the project's usual test runs instead.
+  expect(bashCalls(w)).toEqual(['npm test --silent'])
+})
+
+test('with node_modules in the repository, the JavaScript job’s steps are copied', async ($, on) => {
+  const w = fakeSession(on)
+  w.files['/r/app/.github/workflows/ci.yml'] = 'name: CI\njobs:\n  web:\n    steps:\n      - run: npm ci\n      - run: npm run lint\n  py:\n    steps:\n      - run: pip install -r requirements.txt\n      - run: python -m pytest\n'
+  w.dirs['/r/app/node_modules'] = []
+  await start($, w)
+  await edit($, '/r/app/src/a.ts')
+  await endTurn($, w)
+  expect(bashCalls(w)).toEqual(['npm run lint'])
 })
 
 test('no CI and no tests found: the pane says how to add them, and no run is made', async ($, on) => {

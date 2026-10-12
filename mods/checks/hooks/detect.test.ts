@@ -1,24 +1,40 @@
 import { expect, test } from 'claude-code/testing'
 
-import { ciCommands, defaultCommands, forThisMac, isCheckWorkflow, isFastCommand, parseOverride } from './detect'
+import { ciCommands, defaultCommands, forThisMac, isCheckWorkflow, isFastCommand, isInstallingJob, jobsOf, parseOverride } from './detect'
 
 const WORKFLOW = `name: CI
 on: [push]
-jobs:
+jobs: # every check
   lint:
     steps:
       - uses: actions/checkout@v4
+      # Nothing to pip install here: the standard library is enough.
       - name: Lint modules
         run: python3 tools/ci/lint_modules.py
       - name: "Contract tests"
         run: python -m unittest discover -s tools/ci/tests -v
       - run: go test ./...
-      - name: Install
-        run: pip install -r requirements.txt
       - name: Smoke the model
         run: python scripts/_smoke_claude.py || true
       - name: Audit
         run: npm audit --omit=dev
+  unit:
+    steps:
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Import the worker
+        run: python -c "import worker.main"
+  web:
+    steps:
+      - run: npm ci
+      - run: npm test
+  deps-in-a-script:
+    steps:
+      - name: Dependencies
+        run: |
+          python -m pip install --upgrade pip
+      - name: Unit
+        run: python -m unittest -v
   smoke:
     steps:
       - name: Install and test in Docker
@@ -29,12 +45,33 @@ jobs:
         run: docker compose up -d db
 `
 
-test('a workflow’s fast steps: one-line runs of a known runner, named by their step; installs, scripts, Docker and allowed failures left to the CI', () => {
-  expect(ciCommands(WORKFLOW)).toEqual([
+test('a workflow’s fast steps: one-line runs of a known runner, named by their step; scripts, Docker and allowed failures left to the CI', () => {
+  expect(ciCommands(WORKFLOW, false)).toEqual([
     { label: 'Lint modules', command: 'python3 tools/ci/lint_modules.py' },
     { label: 'Contract tests', command: 'python3 -m unittest discover -s tools/ci/tests -v' },
     { label: 'go test ./...', command: 'go test ./...' },
   ])
+})
+
+test('a job that installs dependencies this repository lacks is left to the CI whole: its steps would fail for that', () => {
+  const jobs = jobsOf(WORKFLOW)
+  expect(jobs.map(j => j[0]!.trim())).toEqual(['lint:', 'unit:', 'web:', 'deps-in-a-script:', 'smoke:'])
+  expect(jobs.map(j => isInstallingJob(j, false))).toEqual([false, true, true, true, false])
+  // With node_modules here, what `npm ci` installs is already in place: the job's steps count.
+  expect(jobs.map(j => isInstallingJob(j, true))).toEqual([false, true, false, true, false])
+  expect(ciCommands(WORKFLOW, true).map(c => c.command)).toEqual(['python3 tools/ci/lint_modules.py', 'python3 -m unittest discover -s tools/ci/tests -v', 'go test ./...', 'npm test'])
+  const step = (cmd: string) => [`      - run: ${cmd}`]
+  const always = ['pip3 install x', 'uv sync', 'uv pip install -e .', 'poetry install', 'pipenv sync', 'conda env create -f e.yml', 'bundle install', 'composer install', 'sudo apt-get install -y xvfb', 'brew install jq']
+  expect(always.filter(cmd => !isInstallingJob(step(cmd), true))).toEqual([])
+  const javascript = ['npm install', 'npm i', 'yarn install', 'pnpm i', 'bun install']
+  expect(javascript.filter(cmd => !isInstallingJob(step(cmd), false))).toEqual([])
+  expect(javascript.filter(cmd => isInstallingJob(step(cmd), true))).toEqual([])
+  expect(['npm init', 'npm test', 'go mod download', 'python3 -m pip list'].filter(cmd => isInstallingJob(step(cmd), false))).toEqual([])
+})
+
+test('jobs end where the next top-level key begins', () => {
+  expect(jobsOf('jobs:\n  a:\n    steps: []\nenv:\n  X: 1\n')).toEqual([['  a:', '    steps: []']])
+  expect(jobsOf('name: no jobs\non: push\n')).toEqual([])
 })
 
 test('fast means a known runner and nothing heavy', () => {

@@ -72,9 +72,10 @@ const checksOf = async ($: EngineInterface, repo: string): Promise<{ commands: C
   }
   const workflows = `${repo}/.github/workflows`
   if (await $.fs.exists(workflows)) {
+    const hasNodeModules = await $.fs.exists(`${repo}/node_modules`)
     for (const entry of [...(await $.fs.list(workflows))].sort((a, b) => a.name.localeCompare(b.name))) {
       const text = await $.fs.read(`${workflows}/${entry.name}`).catch(() => '')
-      const commands = isCheckWorkflow(entry.name, text) ? ciCommands(text) : []
+      const commands = isCheckWorkflow(entry.name, text) ? ciCommands(text, hasNodeModules) : []
       if (commands.length > 0) return { commands, source: { kind: 'ci', path: `.github/workflows/${entry.name}` } }
     }
   }

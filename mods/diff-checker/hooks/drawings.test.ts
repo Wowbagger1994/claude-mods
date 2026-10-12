@@ -6,11 +6,14 @@ import {
   editTone,
   fit,
   groupByRoot,
+  groupKey,
+  keptExpanded,
   minimapCells,
   relativeTime,
   timelineCells,
   toRuns,
   treemapWidths,
+  withoutGroup,
 } from './drawings'
 
 const edit = (id: string, at: number, added = 1, removed = 0): FileEdit => ({
@@ -135,4 +138,19 @@ describe('small helpers', () => {
     expect(fit('discount.js', 6)).toBe('disco…')
     expect(fit('a.js', 6)).toBe('a.js')
   })
+})
+
+test('a group is cleared by its key, the files outside git by -, the others kept in their order', () => {
+  const files = [file('/w/a/x.js', '/w/a'), file('/w/b/y.js', '/w/b'), file('/tmp/z.txt', null), file('/w/a/k.js', '/w/a')]
+
+  expect(groupKey('/w/a')).toBe('/w/a')
+  expect(groupKey(null)).toBe('-')
+  expect(withoutGroup(files, '/w/a').map(f => f.path)).toEqual(['/w/b/y.js', '/tmp/z.txt'])
+  expect(withoutGroup(files, '-').map(f => f.path)).toEqual(['/w/a/x.js', '/w/b/y.js', '/w/a/k.js'])
+  expect(withoutGroup(files, '/w/none')).toHaveLength(4)
+})
+
+test('what was opened in a cleared file is forgotten, the rest kept', () => {
+  const kept = [{ ...file('/w/b/y.js', '/w/b'), edits: [edit('e2', 2)] }]
+  expect(keptExpanded({ e1: true, e2: false, e3: true }, kept)).toEqual({ e2: false })
 })

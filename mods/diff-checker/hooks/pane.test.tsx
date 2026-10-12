@@ -163,6 +163,28 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect((await ui.find({ key: 'tab:/w/app-main/src/app.js' }))?.props.label).toBe('◇ app.js ▰▰▰▰')
   })
 
+  test(`${surface}: one worktree's ✕ asks, then empties that group alone; the other's tabs and status stay`, async ($, on) => {
+    const session = fakeSession(on)
+    await edit($, '/w/app-main/src/app.js', 'a', 'b')
+    await edit($, '/w/app-feature/src/app.js', 'a', 'c')
+    await edit($, '/w/app-feature/src/lib.js', 'a', 'd')
+    const ui = await mountPane($, surface)
+
+    await ui.press({ key: 'clear-group:/w/app-feature' })
+    expect((await ui.find({ type: 'Text', text: 'Svuotare app-feature ⎇ feature-x (2 file)?' }))?.props.color).toBe('warning')
+    await ui.press({ key: 'clear-group-no' })
+    expect(await ui.find({ key: 'tab:/w/app-feature/src/lib.js' })).toBeDefined()
+
+    await ui.press({ key: 'clear-group:/w/app-feature' })
+    await ui.press({ key: 'clear-group-yes' })
+    expect(await ui.find({ key: 'tab:/w/app-feature/src/app.js' })).toBe(undefined)
+    expect(await ui.find({ key: 'tab:/w/app-feature/src/lib.js' })).toBe(undefined)
+    expect(await ui.find({ key: 'tab:/w/app-main/src/app.js' })).toBeDefined()
+    // The last file shown was cleared: the one left is shown, and the status counts it alone.
+    expect((await ui.find({ type: 'Code' }))?.props.source).toContain('+b')
+    expect(session.statuses.at(-1)).toContain('1 file')
+  })
+
   test(`${surface}: the overview shows the file map and the timeline, and hides on press`, async ($, on) => {
     fakeSession(on)
     await edit($, '/r/src/app.js', 'a', 'b')

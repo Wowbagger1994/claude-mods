@@ -1,6 +1,6 @@
 {
   "name": "diff-checker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pannello con un tab per ogni file modificato da Claude e il diff evidenziato",
   "author": { "name": "enrik" },
   "types":"./types/index.d.ts"

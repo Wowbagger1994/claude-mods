@@ -124,6 +124,18 @@ export const groupByRoot = (files: readonly ChangedFile[]): { root: string | nul
       : groups.map(g => (g === group ? { ...g, files: [...g.files, file] } : g))
   }, [])
 
+/** A group's address in a key or a confirmation: its root, `-` for the files outside git. */
+export const groupKey = (root: string | null): string => root ?? '-'
+
+/** The files of the other groups: a group cleared, the rest kept as they were. */
+export const withoutGroup = (files: readonly ChangedFile[], key: string): ChangedFile[] => files.filter(f => groupKey(f.root) !== key)
+
+/** The opened or closed edits that still belong to a file shown. */
+export const keptExpanded = (expanded: Readonly<Record<string, boolean>>, files: readonly ChangedFile[]): Record<string, boolean> => {
+  const ids = new Set(files.flatMap(f => f.edits.map(e => e.id)))
+  return Object.fromEntries(Object.entries(expanded).filter(([id]) => ids.has(id)))
+}
+
 /** Cuts a label to `width` cells with an ellipsis. */
 export const fit = (text: string, width: number): string =>
   width <= 0 ? '' : text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`

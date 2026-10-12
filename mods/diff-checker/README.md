@@ -13,7 +13,7 @@ Un pannello con una scheda per ogni file che Claude ha modificato in questa sess
 | `c` | chiude tutte le modifiche del file |
 | `m` | mostra o nasconde la «Panoramica» |
 
-I tasti valgono quando il pannello ha il cursore; le frecce scorrono, Esc torna al prompt. Senza tasto: «⌫ Svuota» (chiede «Svuotare tutto?» e poi «Sì, svuota» o «Annulla»), «▸ apri» / «▾ chiudi» su ogni modifica, «Riprova» su una spiegazione fallita. Anche i nomi nella mappa e nella linea del tempo si possono premere.
+I tasti valgono quando il pannello ha il cursore; le frecce scorrono, Esc torna al prompt. Senza tasto: «⌫ Svuota» (chiede «Svuotare tutto?» e poi «Sì, svuota» o «Annulla»), «✕» accanto al nome di un worktree, che svuota solo le schede di quel worktree e ramo dopo la stessa conferma (compare quando le schede sono divise in più gruppi), «▸ apri» / «▾ chiudi» su ogni modifica, «Riprova» su una spiegazione fallita. Anche i nomi nella mappa e nella linea del tempo si possono premere.
 
 Cosa si vede:
 - l'intestazione con il totale dei file e delle righe `+` e `−`;
@@ -69,4 +69,4 @@ claude plugin validate .
 claude plugin test .
 ```
 
-I test sono 59, in 5 file.
+I test sono 63, in 5 file.

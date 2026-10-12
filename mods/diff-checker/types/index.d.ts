@@ -48,7 +48,8 @@ declare module 'claude-code' {
       /** Edits the person opened or closed, by id; the latest of a file is open unless closed. */
       expanded: Record<string, boolean>
       isOverviewOpen: boolean
-      isConfirmingClear: boolean
+      /** What Svuota is asking to confirm: `*` every file, else one group by its root (`-` outside git); null: nothing. */
+      confirmingClear: string | null
     }
   }
 }

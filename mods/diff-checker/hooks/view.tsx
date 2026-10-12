@@ -9,6 +9,7 @@ import {
   editTone,
   fit,
   groupByRoot,
+  groupKey,
   minimapCells,
   relativeTime,
   timelineCells,
@@ -34,6 +35,9 @@ export type Actions = {
   askClear: () => unknown
   confirmClear: () => unknown
   cancelClear: () => unknown
+  /** One group of tabs, by its `groupKey`. */
+  askClearGroup: (key: string) => unknown
+  confirmClearGroup: (key: string) => unknown
   retryExplanation: (id: string) => unknown
 }
 
@@ -42,7 +46,8 @@ export type ViewState = {
   current: ChangedFile
   expanded: Record<string, boolean>
   isOverviewOpen: boolean
-  isConfirmingClear: boolean
+  /** `*` every file, a group's key, or null: what Svuota is asking to confirm. */
+  confirmingClear: string | null
   isFocused: boolean
   columns: number
   now: number
@@ -95,7 +100,7 @@ const header = (el: ElementTable, s: ViewState, act: Actions) => {
           dimColor
           onPress={act.toggleOverview}
         />
-        {s.isConfirmingClear ? (
+        {s.confirmingClear === '*' ? (
           <el.Box flexDirection="row" columnGap={1}>
             <el.Text color="warning">Svuotare tutto?</el.Text>
             <el.Button key="clear-yes" label="Sì, svuota" variant="primary" onPress={act.confirmClear} />
@@ -184,6 +189,29 @@ const timeline = (el: ElementTable, s: ViewState, act: Actions) => {
   )
 }
 
+const groupLabel = (group: { root: string | null; files: ChangedFile[] }) =>
+  `${group.root === null ? 'fuori da git' : worktreeName(group.root)}${group.files[0]?.branch ? ` ⎇ ${group.files[0].branch}` : ''}`
+
+/** A group's name, and its own ✕: it empties that worktree's tabs alone, after asking. */
+const groupHeader = (el: ElementTable, s: ViewState, group: { root: string | null; files: ChangedFile[] }, act: Actions) => {
+  const key = groupKey(group.root)
+  if (s.confirmingClear === key) {
+    return (
+      <el.Box key={`clear-group-ask:${key}`} flexDirection="row" columnGap={1}>
+        <el.Text color="warning">{`Svuotare ${groupLabel(group)} (${group.files.length} file)?`}</el.Text>
+        <el.Button key="clear-group-yes" label="Sì, svuota" variant="primary" onPress={() => act.confirmClearGroup(key)} />
+        <el.Button key="clear-group-no" label="Annulla" onPress={act.cancelClear} />
+      </el.Box>
+    )
+  }
+  return (
+    <el.Box key={`group-name:${key}`} flexDirection="row">
+      <el.Text color="claude">{`${groupLabel(group)}:`}</el.Text>
+      <el.Button key={`clear-group:${key}`} label="✕" plain dimColor onPress={() => act.askClearGroup(key)} />
+    </el.Box>
+  )
+}
+
 const tabs = (el: ElementTable, s: ViewState, act: Actions) => {
   const groups = groupByRoot(s.files)
   const isGrouped = groups.length > 1
@@ -194,12 +222,7 @@ const tabs = (el: ElementTable, s: ViewState, act: Actions) => {
     <el.Box flexDirection="column">
       {groups.map(group => (
         <el.Box key={`group:${group.root ?? '-'}`} flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {isGrouped && (
-            <el.Text color="claude">
-              {group.root === null ? 'fuori da git' : worktreeName(group.root)}
-              {group.files[0]?.branch ? ` ⎇ ${group.files[0].branch}` : ''}:
-            </el.Text>
-          )}
+          {isGrouped && groupHeader(el, s, group, act)}
           {group.files.map(file => {
             const index = order.indexOf(file.path)
             const isCurrent = file.path === s.current.path

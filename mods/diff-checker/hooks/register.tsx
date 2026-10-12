@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { ChangedFile, ExplanationState } from '../types'
 import { addEdit, mapEdit, toEditRecord, toFileEdit } from './diff'
+import { keptExpanded, withoutGroup } from './drawings'
 import { buildPrompt, parseExplanations, pendingEdits } from './explain'
 import type { RepoInfo } from './diff'
 import { dirOf, parseRevParse, revParseArgv } from './git'
@@ -20,7 +21,9 @@ const selected = atom({ plugin: 'diff-checker', key: 'selected' } as const, null
 const hasAutoOpened = atom({ plugin: 'diff-checker', key: 'hasAutoOpened' } as const, false)
 const expanded = atom({ plugin: 'diff-checker', key: 'expanded' } as const, {})
 const isOverviewOpen = atom({ plugin: 'diff-checker', key: 'isOverviewOpen' } as const, true)
-const isConfirmingClear = atom({ plugin: 'diff-checker', key: 'isConfirmingClear' } as const, false)
+const confirmingClear = atom({ plugin: 'diff-checker', key: 'confirmingClear' } as const, null)
+/** `confirmingClear` for every file. */
+const ALL = '*'
 
 const GIT_TIMEOUT_MS = 5_000
 
@@ -138,8 +141,18 @@ const clearAll = async ($: EngineInterface) => {
   await update($, changes, () => [])
   await update($, selected, () => null)
   await update($, expanded, () => ({}))
-  await update($, isConfirmingClear, () => false)
+  await update($, confirmingClear, () => null)
   showStatus($, [])
+}
+
+/** Empties one worktree's group, the files of the others kept, and what was open in them. */
+const clearGroup = async ($: EngineInterface, key: string) => {
+  const kept = withoutGroup(await read($, changes), key)
+  await update($, changes, () => kept)
+  await update($, selected, path => (kept.some(f => f.path === path) ? path : null))
+  await update($, expanded, map => keptExpanded(map, kept))
+  await update($, confirmingClear, () => null)
+  showStatus($, kept)
 }
 
 const actionsFor = ($: EngineInterface): Actions => ({
@@ -148,9 +161,11 @@ const actionsFor = ($: EngineInterface): Actions => ({
   setAllEdits: (file, isOpen) =>
     update($, expanded, map => ({ ...map, ...Object.fromEntries(file.edits.map(e => [e.id, isOpen])) })),
   toggleOverview: () => update($, isOverviewOpen, isOpen => !isOpen),
-  askClear: () => update($, isConfirmingClear, () => true),
-  cancelClear: () => update($, isConfirmingClear, () => false),
+  askClear: () => update($, confirmingClear, () => ALL),
+  askClearGroup: key => update($, confirmingClear, () => key),
+  cancelClear: () => update($, confirmingClear, () => null),
   confirmClear: () => clearAll($),
+  confirmClearGroup: key => clearGroup($, key),
   retryExplanation: async id => {
     await setStates($, [id], 'pending')
     await explainPending($)
@@ -212,7 +227,7 @@ export const register: Register = on => {
         current,
         expanded: await read($, expanded),
         isOverviewOpen: await read($, isOverviewOpen),
-        isConfirmingClear: await read($, isConfirmingClear),
+        confirmingClear: await read($, confirmingClear),
         isFocused: e.props.isFocused,
         columns: Math.max(40, e.props.bodyColumns),
         now: await $.clock.now(),

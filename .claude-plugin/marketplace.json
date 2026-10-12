@@ -1,6 +1,6 @@
 {
   "name": "enrik-mods",
-  "description": "Le mod di Claude Code di enrik: segreti, cose da fare, verifiche, diario, diff, draw.io e giochi",
+  "description": "Le mod di Claude Code di enrik: segreti, cose da fare, verifiche, diario, diff, albero di git, draw.io e giochi",
   "owner": {
     "name": "enrik"
   },
@@ -24,6 +24,10 @@
     {
       "name": "diff-checker",
       "source": "./mods/diff-checker"
+    },
+    {
+      "name": "git-tree",
+      "source": "./mods/git-tree"
     },
     {
       "name": "drawio-viewer",

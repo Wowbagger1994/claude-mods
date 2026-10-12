@@ -9,6 +9,7 @@ Mod per [Claude Code](https://claude.com/claude-code): pannelli, comandi e contr
 | [checks](mods/checks/README.md) | `/checks` | I test veloci a fine risposta e la CI su GitHub, con «Chiedi a Claude» sugli errori |
 | [work-diary](mods/work-diary/README.md) | `/diary` | Calendario del mese con le ore di lavoro e i resoconti di giorno e settimana |
 | [diff-checker](mods/diff-checker/README.md) | `/diff-checker` | Un tab per ogni file modificato da Claude, con il diff |
+| [git-tree](mods/git-tree/README.md) | `/git-tree` | La storia del repository come mappa della metro: panorama dei rami nel tempo, commit raggruppati, cambio di ramo con conferma |
 | [drawio-viewer](mods/drawio-viewer/README.md) | `/drawio` | Anteprima dei diagrammi draw.io nel pannello |
 | [arcade](mods/arcade/README.md) | `/play` | Otto giochi per le attese, con i record |
 
@@ -20,7 +21,7 @@ Da un terminale:
 
 ```sh
 claude plugin marketplace add Wowbagger1994/claude-mods
-for m in secret-guard command-deck checks work-diary diff-checker drawio-viewer arcade; do claude plugin install "$m@enrik-mods"; done
+for m in secret-guard command-deck checks work-diary diff-checker git-tree drawio-viewer arcade; do claude plugin install "$m@enrik-mods"; done
 ```
 
 Per una mod sola, dal prompt di Claude Code:

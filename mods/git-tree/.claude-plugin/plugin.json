@@ -1,0 +1,7 @@
+{
+  "name": "git-tree",
+  "version": "0.1.0",
+  "description": "L'albero di git in un pannello: rami locali e di GitHub, merge, dettaglio dei commit e comandi con conferma",
+  "author": { "name": "enrik" },
+  "types": "./types/index.d.ts"
+}

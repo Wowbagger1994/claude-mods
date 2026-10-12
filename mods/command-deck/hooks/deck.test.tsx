@@ -12,8 +12,8 @@ const PANE_PROPS = {
 }
 
 type Fake = {
-  /** What Claude answers the to-do question; null: the question is not answered. */
-  forkReply: string | null
+  /** What Claude answers the to-do question, or how it answers the question asked; null: it is not answered. */
+  forkReply: string | ((prompt: string) => string) | null
   prompts: string[]
   statuses: (string | undefined)[]
   clock: ReturnType<typeof mock.clock>
@@ -47,7 +47,7 @@ const fakeSession = (on: On): Fake => {
       value:
         fake.forkReply === null
           ? { isAnswered: false as const, reason: 'empty-reply' as const, usage }
-          : { isAnswered: true as const, text: fake.forkReply, usage },
+          : { isAnswered: true as const, text: typeof fake.forkReply === 'function' ? fake.forkReply(e.prompt) : fake.forkReply, usage },
     }
   })
   on('ui.status', (_$, e) => {
@@ -84,8 +84,9 @@ const fakeSession = (on: On): Fake => {
   return fake
 }
 
-/** An answer of Claude's, and the to-do question that follows it, answered. */
+/** An answer of Claude's, a second after the last one, and the to-do question that follows it, answered. */
 const answer = async ($: Engine, text: string, agentId?: string) => {
+  await clockNow?.advance(1_000)
   await $.turn.complete({ reason: 'answer', answer: text, durationMs: 1, isAborted: false, turnId: 't', ...(agentId === undefined ? {} : { agentId }) })
   await clockNow?.settle()
 }
@@ -279,3 +280,51 @@ test('a subagent’s answer asks no question; an unanswered one changes nothing'
   expect(await titles(ui)).toEqual([])
 })
 
+
+test('the question carries the last answer, which the fork’s transcript does not hold yet', async ($, on) => {
+  const fake = fakeSession(on)
+  await answer($, 'Ho pubblicato tutto: riavvia con /reload-plugins.')
+
+  expect(fake.prompts[0]).toContain('<<<\nHo pubblicato tutto: riavvia con /reload-plugins.\n>>>')
+})
+
+test('Claude drops loose commands no longer needed, but not those of the answer just given', async ($, on) => {
+  const fake = fakeSession(on)
+  await answer($, '```bash\ngit status\n```')
+  await answer($, '```bash\ngit push\n```')
+  // Claude would drop every loose command it is shown.
+  fake.forkReply = prompt => JSON.stringify({ drop: [...prompt.matchAll(/^- id=(\S+?)[: ]/gm)].map(m => m[1]) })
+  await answer($, 'Fatto il push.\n```bash\ngh pr view\n```')
+  const ui = await mountPane($)
+
+  expect(fake.prompts.at(-1)).toContain('(ultima risposta): gh pr view')
+  // gh pr view is the last answer's: it stays at least until the next one.
+  expect(await codes(ui)).toEqual(['gh pr view'])
+})
+
+test('Claude rewrites an open to-do when the facts change', async ($, on) => {
+  const fake = fakeSession(on)
+  fake.forkReply = JSON.stringify({ add: [{ title: 'Prova /play', detail: '', commands: [] }] })
+  await answer($, 'Prova /play.')
+  const id = /- id=(\S+): Prova \/play/.exec((fake.forkReply = '{}', await answer($, 'ok'), fake.prompts.at(-1) ?? ''))?.[1] ?? ''
+  fake.forkReply = JSON.stringify({ update: [{ id, title: 'Prova /play dopo il riavvio', detail: 'Prima /reload-plugins.', commands: [] }] })
+  await answer($, 'Serve un riavvio prima.')
+  const ui = await mountPane($)
+
+  expect(await titles(ui)).toEqual(['○ Prova /play dopo il riavvio'])
+  expect((await ui.findAll({ type: 'Text' })).map(t => t.text)).toContain('  Prima /reload-plugins.')
+})
+
+test('a to-do closed takes its commands with it: they do not fall among the loose ones', async ($, on) => {
+  const fake = fakeSession(on)
+  fake.forkReply = JSON.stringify({ add: [{ title: 'Pubblica', detail: '', commands: ['git push'] }] })
+  await answer($, '```bash\ngit push\n```\n```bash\nls\n```')
+  fake.forkReply = '{}'
+  const ui = await mountPane($)
+  expect(await codes(ui)).toEqual(['git push', 'ls'])
+
+  const done = (await ui.findAll({ type: 'Button' })).find(b => b.props.label === 'Fatto')
+  await ui.press({ key: String(done?.key) })
+
+  expect(await codes(ui)).toEqual(['ls'])
+})

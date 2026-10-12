@@ -13,29 +13,64 @@ const MAX_COMMAND = 2_000
 
 /** A to-do as the reply proposes it, before it gets an id and a time. */
 export type NewTodo = { title: string; detail: string; commands: string[] }
-export type TodoReply = { add: NewTodo[]; done: string[] }
+/** An open to-do rewritten because the facts changed. */
+export type TodoUpdate = NewTodo & { id: string }
+/**
+ * What the question brings back: to-dos to add, to close, to rewrite, and the
+ * loose commands no longer worth keeping.
+ */
+export type TodoReply = { add: NewTodo[]; done: string[]; update: TodoUpdate[]; drop: string[] }
 
-const NOTHING: TodoReply = { add: [], done: [] }
+const NOTHING: TodoReply = { add: [], done: [], update: [], drop: [] }
+/** The last answer goes in the question: the fork's transcript stops before it. Its tail, past this, is enough. */
+const MAX_ANSWER = 8_000
+const MAX_COMMAND_SHOWN = 300
 
 export const openTodos = (todos: readonly Todo[]): Todo[] => todos.filter(t => t.closed === undefined)
 export const closedTodos = (todos: readonly Todo[]): Todo[] =>
   todos.filter(t => t.closed !== undefined).sort((a, b) => (b.closed?.at ?? 0) - (a.closed?.at ?? 0))
 
-/** The question asked over the session's own transcript, after each answer of Claude's. */
-export const buildTodoPrompt = (open: readonly Todo[]): string =>
+/** A loose command as the question shows it: the ones of the last answer are not Claude's to drop. */
+export type LooseCommand = { id: string; text: string; isLatest: boolean }
+
+const todoLines = (t: Todo): string[] => [
+  `- id=${t.id}: ${t.title}`,
+  ...(t.detail === '' ? [] : [`  dettaglio: ${t.detail}`]),
+  ...t.commands.map(c => `  comando: ${c.text.slice(0, MAX_COMMAND_SHOWN)}`),
+]
+
+/**
+ * The question asked over the session's own transcript after each answer of
+ * Claude's. The fork's transcript is the main thread's last request, which
+ * holds no final answer yet: the answer comes in the question.
+ */
+export const buildTodoPrompt = (open: readonly Todo[], loose: readonly LooseCommand[], lastAnswer: string): string =>
   [
     'Domanda tecnica del pannello command-deck, non dell’utente: non usare strumenti, non rispondere all’utente.',
-    'Rileggi la conversazione, soprattutto l’ultimo messaggio dell’utente e la tua ultima risposta.',
-    '1. «add»: le cose che restano da fare ALL’UTENTE (non a te): prove da fare dal vivo, comandi da eseguire,',
-    '   decisioni da prendere, verifiche, avvisi da gestire (es. ruotare una chiave). Solo azioni concrete e ancora aperte,',
-    '   non già nell’elenco qui sotto, non le cose che hai fatto o farai tu. Titolo breve all’imperativo (max 100 caratteri),',
-    '   «detail» 0-2 frasi, «commands» i comandi da terminale per farla copiati ALLA LETTERA dalle tue risposte ([] se nessuno).',
-    '2. «done»: gli id dell’elenco qui sotto che dalla conversazione risultano fatti o non più necessari',
-    '   (es. l’utente scrive che funziona, o tu li hai già risolti). Nel dubbio non chiuderli.',
-    'Rispondi SOLO con JSON: {"add":[{"title":"…","detail":"…","commands":["…"]}],"done":["<id>"]}.',
+    'Il pannello deve rispecchiare il lavoro com’è ADESSO. Rileggi la conversazione e la tua ultima risposta,',
+    'riportata in fondo: sopra non c’è ancora.',
+    '1. «done»: gli id delle cose da fare già fatte (dall’utente o da te), superate, non più pertinenti,',
+    '   o doppioni di un’altra (tieni la più completa). Resta aperta solo una cosa che chiede ancora un’azione all’utente.',
+    '2. «update»: le cose aperte da riscrivere perché i fatti sono cambiati (passi o comandi nuovi):',
+    '   {"id":"…","title":"…","detail":"…","commands":["…"]}.',
+    '3. «add»: le cose che restano da fare ALL’UTENTE (non a te): prove dal vivo, comandi da eseguire, decisioni,',
+    '   verifiche, avvisi da gestire (es. ruotare una chiave). Solo azioni concrete, non già nell’elenco.',
+    '   Titolo breve all’imperativo (max 100 caratteri), «detail» 0-2 frasi, «commands» i comandi da terminale',
+    '   copiati ALLA LETTERA dalle tue risposte ([] se nessuno).',
+    '4. «drop»: gli id dei comandi sciolti che non servono più: già eseguiti (da te o dall’utente),',
+    '   sostituiti da una versione nuova, legati a lavoro finito o ripresi in una cosa da fare.',
+    'Rispondi SOLO con JSON: {"done":["<id>"],"update":[],"add":[],"drop":["<id>"]}.',
     '',
-    'Elenco attuale delle cose da fare:',
-    ...(open.length === 0 ? ['(vuoto)'] : open.map(t => `- id=${t.id}: ${t.title}`)),
+    'Cose da fare aperte:',
+    ...(open.length === 0 ? ['(nessuna)'] : open.flatMap(todoLines)),
+    '',
+    'Comandi sciolti nel pannello:',
+    ...(loose.length === 0 ? ['(nessuno)'] : loose.map(c => `- id=${c.id}${c.isLatest ? ' (ultima risposta)' : ''}: ${c.text.slice(0, MAX_COMMAND_SHOWN)}`)),
+    '',
+    'La tua ultima risposta:',
+    '<<<',
+    lastAnswer.slice(-MAX_ANSWER),
+    '>>>',
   ].join('\n')
 
 const cut = (value: unknown, max: number): string => (typeof value === 'string' ? value.trim().slice(0, max) : '')
@@ -49,18 +84,34 @@ const toNewTodo = (raw: unknown): NewTodo | null => {
   return { title: name, detail: cut(detail, MAX_DETAIL), commands: texts.slice(0, MAX_COMMANDS_PER_TODO) }
 }
 
-/** Reads the reply's JSON: proposals kept when well formed, «done» ids only of to-dos that are open. */
-export const parseTodoReply = (text: string, openIds: readonly string[]): TodoReply => {
+const toUpdate = (raw: unknown, openIds: readonly string[]): TodoUpdate | null => {
+  const todo = toNewTodo(raw)
+  const id = (raw as Record<string, unknown> | null)?.id
+  return todo !== null && typeof id === 'string' && openIds.includes(id) ? { ...todo, id } : null
+}
+
+const idsAmong = (value: unknown, known: readonly string[]): string[] =>
+  (Array.isArray(value) ? value : []).filter((id): id is string => typeof id === 'string' && known.includes(id))
+
+/**
+ * Reads the reply's JSON: proposals kept when well formed; «done» and «update»
+ * only of to-dos that are open, «drop» only of the commands Claude may drop.
+ */
+export const parseTodoReply = (text: string, openIds: readonly string[], droppableIds: readonly string[] = []): TodoReply => {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) return NOTHING
   try {
     const parsed: unknown = JSON.parse(text.slice(start, end + 1))
     if (typeof parsed !== 'object' || parsed === null) return NOTHING
-    const { add, done } = parsed as Record<string, unknown>
+    const { add, done, update, drop } = parsed as Record<string, unknown>
+    const closing = idsAmong(done, openIds)
     return {
       add: (Array.isArray(add) ? add : []).map(toNewTodo).filter((t): t is NewTodo => t !== null).slice(0, MAX_ADDS_PER_REPLY),
-      done: (Array.isArray(done) ? done : []).filter((id): id is string => typeof id === 'string' && openIds.includes(id)),
+      done: closing,
+      // A to-do both closed and rewritten is closed.
+      update: (Array.isArray(update) ? update : []).map(u => toUpdate(u, openIds)).filter((u): u is TodoUpdate => u !== null && !closing.includes(u.id)),
+      drop: idsAmong(drop, droppableIds),
     }
   } catch {
     return NOTHING
@@ -74,18 +125,20 @@ const trim = (todos: readonly Todo[]): Todo[] => [
   ...closedTodos(todos).slice(0, MAX_CLOSED),
 ]
 
-/** The list after a reply: the done ones closed by Claude, the new ones (not already open) added at the end. */
+const checked = (texts: readonly string[]) => texts.map(text => ({ text, warnings: lint(text) }))
+
+/** The list after a reply: the done ones closed by Claude, the changed ones rewritten, the new ones (not already open) added at the end. */
 export const applyReply = (todos: readonly Todo[], reply: TodoReply, at: number): Todo[] => {
-  const closed = todos.map(t => (t.closed === undefined && reply.done.includes(t.id) ? { ...t, closed: { by: 'claude' as const, at } } : t))
+  const rewrite = new Map(reply.update.map(u => [u.id, u]))
+  const closed = todos.map(t => {
+    if (t.closed !== undefined) return t
+    if (reply.done.includes(t.id)) return { ...t, closed: { by: 'claude' as const, at } }
+    const u = rewrite.get(t.id)
+    return u === undefined ? t : { ...t, title: u.title, detail: u.detail, commands: checked(u.commands) }
+  })
   const fresh = reply.add
     .filter(n => !openTodos(closed).some(t => sameTitle(t.title, n.title)))
-    .map((n, i): Todo => ({
-      id: `${at}-${i}`,
-      title: n.title,
-      detail: n.detail,
-      commands: n.commands.map(text => ({ text, warnings: lint(text) })),
-      at,
-    }))
+    .map((n, i): Todo => ({ id: `${at}-${i}`, title: n.title, detail: n.detail, commands: checked(n.commands), at }))
   return trim([...closed, ...fresh])
 }
 

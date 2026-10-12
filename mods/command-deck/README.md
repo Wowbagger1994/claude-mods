@@ -22,12 +22,17 @@ Quando il pannello è chiuso, un avviso (toast) dice cosa è arrivato, ad esempi
 
 - **A fine risposta di Claude** (non dei subagent):
   1. prende i comandi dai blocchi di codice della risposta: quelli marcati `bash`, `sh`, `zsh`, `shell`, `console` o `terminal`, e quelli senza linguaggio in cui ogni riga comincia con un programma noto (`git`, `npm`, `ssh`, `docker`…) o con `./` o `!`. Se un blocco ha righe che cominciano con `$ `, prende solo quelle, senza il `$ `; righe vuote e commenti `#` non contano.
-  2. fa a Claude una domanda tecnica sulla conversazione: cosa resta da fare a te (prove, comandi, decisioni, verifiche) e quali cose da fare risultano ormai fatte. Le nuove vanno nell'elenco; quelle fatte si chiudono con «chiuso da Claude».
+  2. fa a Claude una domanda tecnica sulla conversazione, per tenere il pannello allineato al lavoro com'è adesso. Gli mostra le cose da fare aperte per intero (titolo, dettaglio, comandi), i comandi sciolti e la sua ultima risposta, che la domanda altrimenti non vedrebbe. Claude:
+     - chiude («chiuso da Claude») le cose fatte da te o da lui, quelle superate o non più pertinenti, e i doppioni;
+     - riscrive quelle aperte quando i fatti sono cambiati (titolo, dettaglio, comandi nuovi);
+     - aggiunge quelle nuove che restano da fare a te (prove, comandi, decisioni, verifiche);
+     - toglie i comandi sciolti che non servono più: già eseguiti, sostituiti da una versione nuova, legati a lavoro finito o ripresi in una cosa da fare. Quelli dell'ultima risposta restano almeno fino alla risposta dopo.
+- **Quando una cosa da fare si chiude** (con «Fatto» o da Claude) **o Claude ne cambia i comandi**: i comandi che non stanno più sotto nessuna cosa aperta lasciano il pannello, invece di finire tra gli altri comandi. «Riapri» riporta una cosa chiusa con i suoi comandi.
 - **Quando la modalità auto nega un comando Bash**: il comando diventa una cosa da fare («Esegui tu: …»), il pannello si apre e compare «Comando negato: copialo da /command-deck ed eseguilo tu». Un «No» premuto da te non conta.
 
 ## Cosa legge e cosa manda
 
-- La domanda a fine risposta usa `$.model.fork`: lo stesso modello della sessione rilegge tutta la conversazione, con gli strumenti negati, più la domanda. Non escono dati nuovi oltre a quelli già nella conversazione, ma ogni risposta costa una richiesta in più.
+- La domanda a fine risposta usa `$.model.fork`: lo stesso modello della sessione rilegge la conversazione fino all'ultima richiesta, con gli strumenti negati, più la domanda. La domanda contiene l'ultima risposta di Claude, l'elenco aperto e i comandi sciolti: tutte cose già nella conversazione, quindi non escono dati nuovi. Ogni risposta costa una richiesta in più.
 - Questa mod non oscura nulla: legge la conversazione così com'è.
 - Copia negli appunti del terminale solo quando premi «Copia».
 - Non legge file e non lancia processi.
@@ -44,7 +49,9 @@ Nessuno strumento esterno.
 - Un blocco di codice più lungo di 25 righe non viene preso come comando.
 - Solo i primi 9 comandi hanno un tasto.
 - Se la domanda a Claude fallisce o la risposta non è JSON valido, l'elenco resta com'è.
-- Una cosa nuova con lo stesso titolo di una già aperta (a parte maiuscole e spazi) non viene aggiunta.
+- Una cosa nuova con lo stesso titolo di una già aperta (a parte maiuscole e spazi) non viene aggiunta. I doppioni scritti in altro modo li chiude Claude, a giudizio suo.
+- Della sua ultima risposta, Claude rilegge al massimo gli ultimi 8000 caratteri; dei comandi, i primi 300.
+- Chiudere, riscrivere e togliere dipendono dal giudizio del modello: se sbaglia, «Riapri» riporta una cosa chiusa, ma un comando tolto non torna.
 
 ## Installazione
 
@@ -64,4 +71,4 @@ claude plugin validate .
 claude plugin test .
 ```
 
-Oggi i test sono 39.
+Oggi i test sono 49.

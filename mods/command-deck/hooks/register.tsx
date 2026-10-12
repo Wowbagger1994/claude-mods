@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { DeckCommand, Todo } from '../types'
-import { addCommands, newTexts, toCommands } from './deck'
+import { addCommands, dropCommands, newTexts, toCommands, withoutSettled } from './deck'
 import { commandsIn } from './extract'
 import { applyReply, buildTodoPrompt, closedTodos, closeTodo, deniedTodo, openTodos, parseTodoReply, readyText, reopenTodo } from './todos'
 import type { Actions } from './view'
@@ -23,6 +23,9 @@ let isReading = false
 let isReadAgain = false
 /** Commands the answers added since the last toast: told together with the to-dos the question finds. */
 let unannouncedCommands = 0
+/** The last answer of the session's own, and when it came: the question needs it, the fork does not see it. */
+let lastAnswer = ''
+let lastAnswerAt: number | null = null
 
 /** Why a copy did not reach the clipboard, in the person's words. */
 const COPY_FAILURES: Record<'no-surface' | 'no-clipboard' | 'refused', string> = {
@@ -39,9 +42,19 @@ const showCount = async ($: EngineInterface) => {
   $.ui.status(open === 0 ? undefined : `☐ ${open} da fare · /command-deck`)
 }
 
+/** Changes the to-dos; the commands of the ones closed or rewritten leave the deck with them. */
 const setTodos = async ($: EngineInterface, fn: (list: Todo[]) => Todo[]) => {
+  const before = await read($, todos)
   await update($, todos, fn)
+  const after = await read($, todos)
+  await update($, commands, deck => withoutSettled(deck, before, after))
   await showCount($)
+}
+
+/** The deck's commands not under an open to-do: the loose ones, as shown. */
+const looseCommands = async ($: EngineInterface) => {
+  const underTodos = new Set(openTodos(await read($, todos)).flatMap(t => t.commands.map(c => c.text)))
+  return (await read($, commands)).filter(c => !underTodos.has(c.text))
 }
 
 /** Puts the commands on top of the deck; answers how many of them are new. */
@@ -52,8 +65,11 @@ const remember = async ($: EngineInterface, fresh: DeckCommand[]): Promise<numbe
 }
 
 const afterAnswer = async ($: EngineInterface, answer: string) => {
+  const at = await $.clock.now()
+  lastAnswer = answer
+  lastAnswerAt = at
   const texts = commandsIn(answer)
-  if (texts.length > 0) unannouncedCommands += await remember($, toCommands(texts, 'answer', await $.clock.now()))
+  if (texts.length > 0) unannouncedCommands += await remember($, toCommands(texts, 'answer', at))
 }
 
 const announce = async ($: EngineInterface, todoCount: number) => {
@@ -75,10 +91,14 @@ const readTodos = async ($: EngineInterface) => {
     do {
       isReadAgain = false
       const before = openTodos(await read($, todos))
-      const reply = await $.model.fork({ prompt: buildTodoPrompt(before) })
+      const loose = (await looseCommands($)).map(c => ({ id: c.id, text: c.text, isLatest: c.at === lastAnswerAt }))
+      const reply = await $.model.fork({ prompt: buildTodoPrompt(before, loose, lastAnswer) })
       if (!reply.isAnswered) continue
-      const parsed = parseTodoReply(reply.text, before.map(t => t.id))
+      // The last answer's commands were just shown: they stay at least until the next one.
+      const droppable = loose.filter(c => !c.isLatest).map(c => c.id)
+      const parsed = parseTodoReply(reply.text, before.map(t => t.id), droppable)
       const at = await $.clock.now()
+      await update($, commands, deck => dropCommands(deck, parsed.drop))
       await setTodos($, list => applyReply(list, parsed, at))
       // New ones are those minted now: their ids start with this moment.
       found += openTodos(await read($, todos)).filter(t => t.at === at && !before.some(b => b.id === t.id)).length
@@ -97,7 +117,7 @@ const readTodos = async ($: EngineInterface) => {
 const afterDenied = async ($: EngineInterface, command: string) => {
   const at = await $.clock.now()
   await remember($, toCommands([command], 'denied', at))
-  await setTodos($, list => applyReply(list, { add: [deniedTodo(command)], done: [] }, at))
+  await setTodos($, list => applyReply(list, { add: [deniedTodo(command)], done: [], update: [], drop: [] }, at))
   await $.ui.open({ id: PANE, title: TITLE })
   $.ui.toast('Comando negato: copialo da /command-deck ed eseguilo tu')
 }
@@ -154,14 +174,12 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const list = await read($, todos)
-    const open = openTodos(list)
-    const underTodos = new Set(open.flatMap(t => t.commands.map(c => c.text)))
     return deckView(
       $.ui.resolve(e),
       {
-        open,
+        open: openTodos(list),
         closed: closedTodos(list),
-        commands: (await read($, commands)).filter(c => !underTodos.has(c.text)),
+        commands: await looseCommands($),
         isDoneShown: await read($, isDoneShown),
         isReading,
       },

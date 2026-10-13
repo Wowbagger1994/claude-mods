@@ -1,5 +1,5 @@
 /** The games of the arcade. */
-export type GameId = 'snake' | '2048' | 'dino' | 'bugs' | 'flappy' | 'typing' | 'tetris' | 'mines'
+export type GameId = 'snake' | '2048' | 'dino' | 'bugs' | 'flappy' | 'typing' | 'tetris' | 'mines' | 'breakout' | 'wordle' | 'maze'
 
 declare module 'claude-code' {
   interface PluginState {

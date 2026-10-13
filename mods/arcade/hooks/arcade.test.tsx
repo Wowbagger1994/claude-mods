@@ -78,16 +78,19 @@ test('the menu lists the games; a number starts one and the clock moves it', asy
   const ui = await mountPane($)
 
   const menu = await boardText(ui)
-  expect(menu).toContain('1. Snake')
-  expect(menu).toContain('2. 2048')
-  expect(menu).toContain('3. Claude runner')
+  expect(menu).toContain('◆ ARCADE')
+  expect(menu).toMatch(/▶ 1 ● Snake/)
+  expect(menu).toMatch(/ {3}2 ▦ 2048/)
+  expect(menu).toMatch(/ {3}3 ▟ Claude runner/)
+  await ui.key({ key: 'down', in: 'board' })
+  expect(await boardText(ui)).toMatch(/▶ 2 ▦ 2048/)
 
   await ui.key({ key: '1', in: 'board' })
   const before = await ui.drawn({ in: 'board' })
   await ui.advance(300)
 
-  expect(await boardText(ui)).toContain('punti 0')
-  expect(await boardText(ui)).toContain('┌')
+  expect(await boardText(ui)).toContain('● Snake  punti 0')
+  expect(await boardText(ui)).toContain('╭─ Snake')
   expect(await ui.drawn({ in: 'board' })).not.toEqual(before)
 })
 
@@ -103,7 +106,8 @@ test('a finished game keeps its record, shown in the menu', async ($, on) => {
 
   expect(over).toContain('Partita finita')
   expect(over).toContain('Nuovo record!')
-  expect(await boardText(ui)).toMatch(/Claude runner\s+record [1-9]\d*/)
+  expect(over).toContain('╭─ ★ NUOVO RECORD')
+  expect(await boardText(ui)).toMatch(/Claude runner .*★ [1-9]\d*/)
 })
 
 test('a score is kept only when it beats the record, and odd messages are ignored', async ($, on) => {
@@ -116,8 +120,8 @@ test('a score is kept only when it beats the record, and odd messages are ignore
   await ui.post({ kind: 'score', game: '2048', score: 'tanti' }, { in: 'board' })
   const menu = await boardText(ui)
 
-  expect(menu).toMatch(/Snake\s+record 50/)
-  expect(menu).toMatch(/2048\s+record 0/)
+  expect(menu).toMatch(/Snake .*★ 50/)
+  expect(menu).toMatch(/2048 .*— │/)
   // What the board is handed: an unknown game never reaches the records.
   expect((await ui.find({ type: 'Client' }))?.props.props).toMatchObject({ best: { snake: 50 } })
   expect(Object.keys(((await ui.find({ type: 'Client' }))?.props.props as { best: object }).best)).toEqual(['snake'])
@@ -128,13 +132,13 @@ test('records outlive the session: kept in the store, the better of old and new,
   fake.store.set('best', { snake: 40, '2048': 300, pong: 9, tetris: 'tanti' })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   const ui = await mountPane($)
-  expect(await boardText(ui)).toMatch(/Snake\s+record 40/)
+  expect(await boardText(ui)).toMatch(/Snake .*★ 40/)
 
   await ui.post({ kind: 'score', game: 'snake', score: 55 }, { in: 'board' })
   await ui.post({ kind: 'score', game: '2048', score: 100 }, { in: 'board' })
 
   expect(fake.store.get('best')).toEqual({ snake: 55, '2048': 300 })
-  expect(await boardText(ui)).toMatch(/2048\s+record 300/)
+  expect(await boardText(ui)).toMatch(/2048 .*★ 300/)
 
   // Another session beats it meanwhile: its record stays.
   fake.store.set('best', { snake: 70, '2048': 300 })
@@ -149,7 +153,7 @@ test('after 10 s of work Claude invites to play, once in ten minutes, and not wh
   await fake.clock.advance(9_000)
   expect(fake.toasts).toEqual([])
   await fake.clock.advance(2_000)
-  expect(fake.toasts).toEqual(['Claude ci mette un po’: /play per una partita (otto giochi, con i record)'])
+  expect(fake.toasts).toEqual(['Claude ci mette un po’: /play per una partita (undici giochi, con i record)'])
 
   await endTurn($, 't1')
   await startTurn($, 't2')
@@ -186,7 +190,8 @@ test('Claude finishing pauses the game in progress and says so', async ($, on) =
   await endTurn($, 't1')
   const paused = await boardText(ui)
 
-  expect(paused).toContain('Claude ha finito: partita in pausa')
+  expect(paused).toContain('Claude ha finito:')
+  expect(paused).toContain('partita in pausa.')
   expect(paused).toContain('✓ Claude ha finito')
   expect(fake.toasts).toContain('Claude ha finito')
 })
@@ -222,7 +227,7 @@ test('the names in what Claude writes reach the board, newest first; a refused e
   expect(words).toEqual(['const', 'cartTotal', 'export', 'formatPrice', 'amount'])
 })
 
-for (const [n, name] of [['1', 'Snake'], ['2', '2048'], ['3', 'Claude runner'], ['4', 'Flappy Claude'], ['5', 'Acchiappa il bug'], ['6', 'Tetris'], ['7', 'Campo minato'], ['8', 'Pioggia di parole']] as const) {
+for (const [n, name] of [['1', 'Snake'], ['2', '2048'], ['3', 'Claude runner'], ['4', 'Flappy Claude'], ['5', 'Acchiappa il bug'], ['6', 'Tetris'], ['7', 'Campo minato'], ['8', 'Pioggia di parole'], ['9', 'Breakout'], ['a', 'Wordle del codice'], ['b', 'Labirinto 3D']] as const) {
   test(`${name} starts from the menu and is drawn in the pane, moving and keyed`, async ($, on) => {
     fakeSession(on)
     const ui = await mountPane($)

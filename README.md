@@ -11,7 +11,7 @@ Mod per [Claude Code](https://claude.com/claude-code): pannelli, comandi e contr
 | [diff-checker](mods/diff-checker/README.md) | `/diff-checker` | Un tab per ogni file modificato da Claude, con il diff |
 | [git-tree](mods/git-tree/README.md) | `/git-tree` | La storia del repository come mappa della metro: panorama dei rami nel tempo, commit raggruppati, cambio di ramo con conferma |
 | [drawio-viewer](mods/drawio-viewer/README.md) | `/drawio` | Anteprima dei diagrammi draw.io nel pannello |
-| [arcade](mods/arcade/README.md) | `/play` | Otto giochi per le attese, con i record |
+| [arcade](mods/arcade/README.md) | `/play` | Undici giochi per le attese, con i record |
 
 Le mod sono scritte e provate con Claude Code 2.1.296 su macOS. drawio-viewer disegna il PNG solo su macOS, altrove mostra il disegno a caratteri; le altre usano solo strumenti comuni (`git`, `python3`, `gh`), come dice il README di ognuna.
 

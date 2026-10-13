@@ -1,7 +1,9 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 
 import { gameOf } from './games/catalog'
+import { PALETTE } from './games/style'
 import type { Row } from './games/types'
+import { bannerRows, lookOf, menuRows } from './menu'
 import type { BoardProps, Play, Step } from './play'
 import { CHROME_ROWS, drawOf, GAMES, isMoving, newPlay, onKey, onProps, onTick, pauseKeyOf, scoreOf, statusOf } from './play'
 
@@ -21,9 +23,10 @@ const apply = (surface: Surface, step: Step) => {
   if (step.score !== null) surface.post({ kind: 'score', game: step.score.game, score: step.score.score })
 }
 
-const rows = (el: Elements, lines: Row[]) =>
+/** Rows drawn as Texts; `prefix` keeps the keys of two blocks in one Box apart. */
+const rows = (el: Elements, lines: Row[], prefix = 'r') =>
   lines.map((line, r) => (
-    <el.Text key={`r${r}`} wrap="truncate-end">
+    <el.Text key={`${prefix}${r}`} wrap="truncate-end">
       {line.map((span, i) => (
         <el.Text key={`s${i}`} color={span.fg} backgroundColor={span.bg} bold={span.bold}>
           {span.text}
@@ -39,44 +42,39 @@ const claudeLine = (el: Elements, props: BoardProps) =>
     <el.Text color={DONE}>✓ Claude ha finito: Esc torna al prompt</el.Text>
   )
 
-const menu = (el: Elements, p: Play, props: BoardProps) => (
-  <el.Box flexDirection="column">
-    <el.Text bold>Scegli un gioco</el.Text>
-    {GAMES.map((g, i) => (
-      <el.Text key={g.id} color={i === p.cursor ? 'claude' : undefined} bold={i === p.cursor}>
-        {`${i === p.cursor ? '▶' : ' '} ${i + 1}. ${g.name.padEnd(18)} record ${props.best[g.id] ?? 0}`}
-      </el.Text>
-    ))}
-    <el.Text dimColor>{`↑↓ scegli · Invio gioca · 1–${GAMES.length} per partire subito`}</el.Text>
-  </el.Box>
-)
+const menu = (el: Elements, p: Play, props: BoardProps, columns: number) => <el.Box flexDirection="column">{rows(el, menuRows(p.cursor, props.best, columns))}</el.Box>
 
-const message = (el: Elements, p: Play) => {
+/** Under the game: the keys while playing; a framed banner when paused or over. */
+const message = (el: Elements, p: Play, columns: number) => {
   const def = gameOf(p.game)
   const pauseKey = pauseKeyOf(def) === 'tab' ? 'Tab' : 'p'
   if (p.screen === 'paused') {
-    const why = p.pausedBy === 'claude' ? 'Claude ha finito: partita in pausa.' : 'In pausa.'
-    return <el.Text color="warning">{`${why} Invio riprende · m menu`}</el.Text>
+    const why = p.pausedBy === 'claude' ? ['Claude ha finito:', 'partita in pausa.'] : ['In pausa.']
+    return rows(el, bannerRows({ title: '❚❚ PAUSA', color: PALETTE.hurry, lines: [...why, 'Invio riprende · m menu'] }, columns), 'banner')
   }
   if (p.screen === 'over') {
     const record = p.isRecord ? ' Nuovo record!' : ''
-    return <el.Text color={p.isRecord ? DONE : 'warning'} bold>{`Partita finita: ${scoreOf(p)} punti.${record} Invio rigioca · m menu`}</el.Text>
+    const title = p.isRecord ? '★ NUOVO RECORD' : 'FINE'
+    const color = p.isRecord ? PALETTE.good : PALETTE.danger
+    return rows(el, bannerRows({ title, color, lines: [`Partita finita: ${scoreOf(p)} punti.${record}`, 'Invio rigioca · m menu'] }, columns), 'banner')
   }
-  return <el.Text dimColor>{`${def.keys} · ${pauseKey} pausa · Esc torna al prompt`}</el.Text>
+  return [<el.Text key="help" dimColor>{`${def.keys} · ${pauseKey} pausa · Esc torna al prompt`}</el.Text>]
 }
 
-const game = (el: Elements, p: Play, props: BoardProps) => {
+const game = (el: Elements, p: Play, props: BoardProps, columns: number) => {
   const status = statusOf(p)
+  const look = lookOf(p.game)
   return (
     <el.Box flexDirection="column">
       <el.Text>
+        <el.Text color={look.color} bold>{`${look.icon} `}</el.Text>
         <el.Text bold>{gameOf(p.game).name}</el.Text>
         <el.Text>{`  punti ${scoreOf(p)}`}</el.Text>
         <el.Text dimColor>{`  record ${props.best[p.game] ?? 0}`}</el.Text>
         {status !== '' && <el.Text color="claude">{`  ${status}`}</el.Text>}
       </el.Text>
       {rows(el, drawOf(p))}
-      {message(el, p)}
+      {message(el, p, columns)}
     </el.Box>
   )
 }
@@ -104,7 +102,7 @@ const Board: ClientModule<BoardProps, Play> = (props, surface) => {
   return (
     <el.Box flexDirection="column">
       {claudeLine(el, props)}
-      {seen.screen === 'menu' ? menu(el, seen, props) : game(el, seen, props)}
+      {seen.screen === 'menu' ? menu(el, seen, props, surface.columns) : game(el, seen, props, surface.columns)}
     </el.Box>
   )
 }

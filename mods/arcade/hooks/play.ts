@@ -1,6 +1,7 @@
 import type { GameId } from '../types'
 import { GAMES, gameOf } from './games/catalog'
 import { directionOf, isSpace } from './games/keys'
+import { indexOfMenuKey } from './menu'
 import type { AnyGame } from './games/types'
 
 /** What the hooks module hands the board: records, Claude's work, the words of the code it edits. */
@@ -95,8 +96,8 @@ const isGo = (key: string) => key === 'return' || isSpace(key)
 const none = (play: Play): Step => ({ play, score: null })
 
 const menuKey = (p: Play, key: string, props: BoardProps, size: Size): Step => {
-  const picked = Number(key) - 1
-  if (Number.isInteger(picked) && picked >= 0 && picked < GAMES.length) return none(start(p, GAMES[picked]!.id, props, size))
+  const picked = indexOfMenuKey(key, GAMES.length)
+  if (picked >= 0) return none(start(p, GAMES[picked]!.id, props, size))
   const dir = directionOf(key)
   if (dir === 'up' || dir === 'down') {
     return none({ ...p, cursor: (p.cursor + (dir === 'up' ? GAMES.length - 1 : 1)) % GAMES.length })

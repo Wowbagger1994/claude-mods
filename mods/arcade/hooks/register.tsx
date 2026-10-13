@@ -50,7 +50,7 @@ const invite = async ($: EngineInterface, turnId: string) => {
     const now = await $.clock.now()
     if (now - lastInviteAt < INVITE_COOLDOWN_MS || (await isPaneShown($))) return
     lastInviteAt = now
-    $.ui.toast('Claude ci mette un po’: /play per una partita (otto giochi, con i record)')
+    $.ui.toast('Claude ci mette un po’: /play per una partita (undici giochi, con i record)')
   } catch (error) {
     $.ui.log(`${PLUGIN}: invito non mostrato: ${String(error)}`, { to: 'debug' })
   }
@@ -88,7 +88,7 @@ const harvest = async ($: EngineInterface, path: string, code: string, ran: { de
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'play', description: 'Otto giochi da fare mentre Claude lavora, con i record' })
+    await $.command.register({ name: 'play', description: 'Undici giochi da fare mentre Claude lavora, con i record' })
     // A session that stopped mid-turn left this on: a new one starts idle.
     activeTurn = null
     await update($, isBusy, () => false)

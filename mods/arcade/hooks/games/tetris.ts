@@ -1,7 +1,7 @@
-import { pack } from '../draw'
 import { directionOf, isSpace } from './keys'
 import type { Rng } from './rng'
 import { nextInt } from './rng'
+import { centerPad, framed, meter, pack, PALETTE } from './style'
 import type { GameDef, Row, Span } from './types'
 
 export type Kind = 'I' | 'O' | 'T' | 'S' | 'Z' | 'J' | 'L'
@@ -28,6 +28,14 @@ export type Tetris = {
   /** Milliseconds since the piece last fell a row. */
   fallMs: number
   isOver: boolean
+  /** Columns of the room, to center the drawing; 0 draws it at the left. */
+  columns: number
+  /** Rows just cleared, lit for a moment: the board as it was with them, and which they were. */
+  flash: { board: Board; rows: number[]; ms: number } | null
+  /** A hard drop's streak: the cells the piece fell through, for a moment. */
+  trail: { kind: Kind; cells: Point[]; ms: number } | null
+  /** The last clear's points and name, cut into the well's bottom edge for a while. */
+  banner: { text: string; ms: number } | null
 }
 
 export const WIDTH = 10
@@ -38,13 +46,19 @@ const FRAME_ROWS = 2
 const KINDS: readonly Kind[] = ['I', 'O', 'T', 'S', 'Z', 'J', 'L']
 /** Points for 1, 2, 3 and 4 rows cleared at once, times the level. */
 export const LINE_POINTS = [0, 100, 300, 500, 800]
-const LINES_PER_LEVEL = 10
+export const LINES_PER_LEVEL = 10
 const SOFT_DROP_POINTS = 1
 const HARD_DROP_POINTS = 2
 /** Milliseconds per row at level 1, less at each level, never below the floor. */
 const BASE_FALL_MS = 800
 const FALL_STEP_MS = 70
 const MIN_FALL_MS = 80
+/** How long cleared rows stay lit, a hard drop's streak lasts, a clear's points show. */
+export const FLASH_MS = 240
+export const TRAIL_MS = 160
+export const BANNER_MS = 1600
+/** A clear of 1, 2, 3 and 4 rows, by name. */
+const CLEAR_NAMES = ['', 'singola', 'doppia', 'tripla', 'TETRIS!']
 /** Where a rotation that does not fit may try instead: in place, one left, one right. */
 const KICKS = [0, -1, 1]
 
@@ -67,7 +81,16 @@ export const COLORS: Record<Kind, string> = {
   J: '#3b82f6',
   L: '#f97316',
 }
-const FRAME = '#6b7280'
+/** Each kind's lit top edge, the bevel over its colour. */
+export const LIGHTS: Record<Kind, string> = {
+  I: '#a5f3fc',
+  O: '#fef08a',
+  T: '#d8b4fe',
+  S: '#86efac',
+  Z: '#fca5a5',
+  J: '#93c5fd',
+  L: '#fdba74',
+}
 
 const cellsOf = (shape: string[]): Point[] =>
   shape.flatMap((line, y) => [...line].flatMap((c, x) => (c === 'X' ? [{ x, y }] : [])))
@@ -111,7 +134,7 @@ const draw = (bag: Kind[], rng: Rng): [Kind, Kind[], Rng] => {
 export const emptyBoard = (width: number, height: number): Board =>
   Array.from({ length: height }, () => Array<Kind | null>(width).fill(null))
 
-export const newTetris = (width: number, height: number, rng: Rng): Tetris => {
+export const newTetris = (width: number, height: number, rng: Rng, columns = 0): Tetris => {
   const [first, bag1, r1] = draw([], rng)
   const [next, bag2, r2] = draw(bag1, r1)
   return {
@@ -127,6 +150,10 @@ export const newTetris = (width: number, height: number, rng: Rng): Tetris => {
     level: 1,
     fallMs: 0,
     isOver: false,
+    columns,
+    flash: null,
+    trail: null,
+    banner: null,
   }
 }
 
@@ -137,10 +164,12 @@ export const lock = (t: Tetris): Tetris => {
   const blocks = blocksOf(t.piece)
   const merged = t.board.map((row, y) => row.map((cell, x) => (blocks.some(b => b.x === x && b.y === y) ? t.piece.kind : cell)))
   const kept = merged.filter(row => row.some(cell => cell === null))
-  const cleared = t.height - kept.length
+  const full = merged.flatMap((row, y) => (row.every(cell => cell !== null) ? [y] : []))
+  const cleared = full.length
   const board = [...emptyBoard(t.width, cleared), ...kept]
   const lines = t.lines + cleared
-  const score = t.score + (LINE_POINTS[cleared] ?? 0) * t.level
+  const points = (LINE_POINTS[cleared] ?? 0) * t.level
+  const score = t.score + points
   const [next, bag, rng] = draw(t.bag, t.rng)
   const piece = spawn(t.next, t.width)
   return {
@@ -155,6 +184,8 @@ export const lock = (t: Tetris): Tetris => {
     level: Math.floor(lines / LINES_PER_LEVEL) + 1,
     fallMs: 0,
     isOver: !fits(board, piece),
+    flash: cleared > 0 ? { board: merged, rows: full, ms: FLASH_MS } : null,
+    banner: cleared > 0 ? { text: `+${points} ${CLEAR_NAMES[cleared]}`, ms: BANNER_MS } : t.banner,
   }
 }
 
@@ -175,14 +206,19 @@ const turn = (t: Tetris): Tetris => {
   return kicked === undefined ? t : { ...t, piece: kicked }
 }
 
+/** Where the piece would come to rest, dropped straight down. */
+const landing = (board: Board, piece: Piece): Piece => {
+  let p = piece
+  while (fits(board, { ...p, y: p.y + 1 })) p = { ...p, y: p.y + 1 }
+  return p
+}
+
 const hardDrop = (t: Tetris): Tetris => {
-  let piece = t.piece
-  let rows = 0
-  while (fits(t.board, { ...piece, y: piece.y + 1 })) {
-    piece = { ...piece, y: piece.y + 1 }
-    rows++
-  }
-  return lock({ ...t, piece, score: t.score + rows * HARD_DROP_POINTS })
+  const piece = landing(t.board, t.piece)
+  const rows = piece.y - t.piece.y
+  const cells = blocksOf(t.piece).flatMap(b => Array.from({ length: rows }, (_, dy) => ({ x: b.x, y: b.y + dy })))
+  const trail = rows > 0 ? { kind: t.piece.kind, cells, ms: TRAIL_MS } : t.trail
+  return lock({ ...t, piece, score: t.score + rows * HARD_DROP_POINTS, trail })
 }
 
 export const keyTetris = (t: Tetris, key: string): Tetris => {
@@ -201,9 +237,13 @@ export const keyTetris = (t: Tetris, key: string): Tetris => {
   return t
 }
 
+/** An effect `ms` older, gone once its time is up. */
+const aged = <E extends { ms: number }>(effect: E | null, ms: number): E | null =>
+  effect === null || effect.ms <= ms ? null : { ...effect, ms: effect.ms - ms }
+
 /** Gravity: the piece falls a row each interval, faster at each level. */
 export const tickTetris = (t: Tetris, ms: number): Tetris => {
-  let state = { ...t, fallMs: t.fallMs + ms }
+  let state = { ...t, fallMs: t.fallMs + ms, flash: aged(t.flash, ms), trail: aged(t.trail, ms), banner: aged(t.banner, ms) }
   while (!state.isOver && state.fallMs >= fallInterval(state.level)) {
     const rest = state.fallMs - fallInterval(state.level)
     state = { ...fall(state), fallMs: rest }
@@ -211,30 +251,113 @@ export const tickTetris = (t: Tetris, ms: number): Tetris => {
   return state
 }
 
-const block = (kind: Kind | null): Span => (kind === null ? { text: ' ·', fg: '#3f3f46' } : { text: '  ', bg: COLORS[kind] })
+/** A block, two columns: its colour under a lit top edge, like a bevel. */
+const BLOCK = '▆▆'
+/** Where the piece will land, its shadow. */
+const GHOST = '░░'
+/** A hard drop's streak, a thin line down the middle of each column. */
+const STREAK = '▕▏'
+/** The blocks of a lost game, greyed. */
+const DEAD = { fg: '#52525b', bg: '#71717a' }
+/** The jammed piece of a lost game: white crosses on red, unlike any block. */
+export const JAMMED: Span = { text: '╳╳', fg: PALETTE.white, bg: PALETTE.danger, bold: true }
+const EMPTY: Span = { text: ' ·', fg: PALETTE.faint }
+const CLEARED: Span = { text: '██', fg: PALETTE.white, bold: true }
+/** Inside of the side boxes; the blank between the well and them. */
+const PANEL_INNER = 13
+const GAP = 2
+/** Free rows over the stack below which the well turns amber, then red: a share of its height. */
+const HURRY_SHARE = 1 / 3
+const DANGER_SHARE = 1 / 6
 
-/** The next piece's rows for the preview: its shape, two columns per cell. */
-const preview = (kind: Kind): Row[] => {
-  const rows = SHAPES[kind].filter(line => line.includes('X'))
-  return rows.map(line => [...line].map((c): Span => (c === 'X' ? { text: '  ', bg: COLORS[kind] } : { text: '  ' })))
+const blockOf = (kind: Kind): Span => ({ text: BLOCK, fg: COLORS[kind], bg: LIGHTS[kind] })
+
+/** What the well shows at this moment: the board, the lit rows, the piece and its shadow, a streak. */
+type View = { board: Board; lit: number[]; piece: Point[]; pieceSpan: Span; ghost: Point[]; trail: Point[] }
+
+const has = (points: readonly Point[], x: number, y: number) => points.some(p => p.x === x && p.y === y)
+
+const viewOf = (t: Tetris): View => {
+  if (t.isOver) return { board: t.board, lit: [], piece: blocksOf(t.piece), pieceSpan: JAMMED, ghost: [], trail: [] }
+  const trail = t.trail?.cells ?? []
+  if (t.flash !== null) return { board: t.flash.board, lit: t.flash.rows, piece: [], pieceSpan: EMPTY, ghost: [], trail }
+  const ghost = blocksOf(landing(t.board, t.piece))
+  return { board: t.board, lit: [], piece: blocksOf(t.piece), pieceSpan: blockOf(t.piece.kind), ghost, trail }
 }
 
+const cellOf = (t: Tetris, v: View, x: number, y: number): Span => {
+  if (v.lit.includes(y)) return CLEARED
+  if (has(v.piece, x, y)) return v.pieceSpan
+  const kind = v.board[y]?.[x] ?? null
+  if (kind !== null) return t.isOver ? { text: BLOCK, ...DEAD } : blockOf(kind)
+  if (has(v.ghost, x, y)) return { text: GHOST, fg: COLORS[t.piece.kind] }
+  if (has(v.trail, x, y)) return { text: STREAK, fg: LIGHTS[t.trail!.kind] }
+  return EMPTY
+}
+
+/** Rows free over the highest block. */
+const freeRows = (board: Board): number => {
+  const top = board.findIndex(row => row.some(cell => cell !== null))
+  return top === -1 ? board.length : top
+}
+
+/** The well's frame: red when lost, green as rows clear, amber then red as the stack nears the top. */
+const wellColor = (t: Tetris): string => {
+  if (t.isOver) return PALETTE.danger
+  if (t.flash !== null) return PALETTE.good
+  const free = freeRows(t.board)
+  return free <= t.height * DANGER_SHARE ? PALETTE.danger : free <= t.height * HURRY_SHARE ? PALETTE.hurry : PALETTE.frame
+}
+
+/** The bottom edge: a clear's points while they show, the end, or a plain line. */
+const wellFooter = (t: Tetris): Span[] => {
+  if (t.isOver) return [{ text: ' pozzo pieno ', fg: PALETTE.danger, bold: true }]
+  return t.banner === null ? [] : [{ text: ` ${t.banner.text} `, fg: PALETTE.good, bold: true }]
+}
+
+const wellRows = (t: Tetris): Row[] => {
+  const v = viewOf(t)
+  const rows = v.board.map((row, y) => row.map((_, x) => cellOf(t, v, x, y)))
+  return framed(rows, t.width * 2, { color: wellColor(t), footer: wellFooter(t) })
+}
+
+/** The next piece in a box, centered, its blocks as in the well. */
+const nextBox = (kind: Kind): Row[] => {
+  const shape = SHAPES[kind].filter(line => line.includes('X')).map(line => line.replace(/\.+$/, ''))
+  const wide = Math.max(...shape.map(line => line.length)) * 2
+  const rows = shape.map(line => [centerPad(PANEL_INNER, wide), ...[...line].map((c): Span => (c === 'X' ? blockOf(kind) : { text: '  ' }))])
+  return framed([[], ...rows, ...(rows.length < 2 ? [[]] : []), []], PANEL_INNER, { title: 'Prossimo' })
+}
+
+/** The level in a box: rows cleared, and a meter of the way to the next level. */
+const levelBox = (t: Tetris): Row[] => {
+  const share = (t.lines % LINES_PER_LEVEL) / LINES_PER_LEVEL
+  return framed(
+    [
+      [{ text: ' righe ', fg: PALETTE.label }, { text: String(t.lines), fg: PALETTE.white, bold: true }],
+      [{ text: ' ' }, ...meter(share, PANEL_INNER - 3, PALETTE.sky)],
+    ],
+    PANEL_INNER,
+    { title: `livello ${t.level}` },
+  )
+}
+
+/** The well, and beside it the next piece and the level when there is room, centered in the columns. */
 export const drawTetris = (t: Tetris): Row[] => {
-  const blocks = t.isOver ? [] : blocksOf(t.piece)
-  const side: Row[] = [[{ text: 'Prossimo', bold: true }], [], ...preview(t.next)]
-  const edge = (l: string, r: string): Span => ({ text: `${l}${'─'.repeat(t.width * 2)}${r}`, fg: FRAME })
-  const rows = t.board.map((row, y) => {
-    const cells = row.map((cell, x) => block(blocks.some(b => b.x === x && b.y === y) ? t.piece.kind : cell))
-    return pack([{ text: '│', fg: FRAME }, ...cells, { text: '│', fg: FRAME }, { text: '  ' }, ...(side[y] ?? [])])
-  })
-  return [[edge('┌', '┐')], ...rows, [edge('└', '┘')]]
+  const well = wellRows(t)
+  const wellWidth = t.width * 2 + 2
+  const fullWidth = wellWidth + GAP + PANEL_INNER + 2
+  const hasPanel = t.columns === 0 || t.columns >= fullWidth
+  const panel = hasPanel ? [...nextBox(t.next), [], ...levelBox(t)] : []
+  const pad = centerPad(t.columns, hasPanel ? fullWidth : wellWidth)
+  return well.map((row, i) => pack([pad, ...row, ...(panel[i] === undefined ? [] : [{ text: ' '.repeat(GAP) }, ...panel[i]!])]))
 }
 
 export const TETRIS: GameDef<Tetris> = {
   id: 'tetris',
   name: 'Tetris',
   keys: '←→ muovi · ↑ ruota · ↓ scendi · spazio fa cadere',
-  create: ctx => newTetris(WIDTH, Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, ctx.rows - FRAME_ROWS)), ctx.rng),
+  create: ctx => newTetris(WIDTH, Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, ctx.rows - FRAME_ROWS)), ctx.rng, ctx.columns),
   key: keyTetris,
   tick: tickTetris,
   isOver: t => t.isOver,

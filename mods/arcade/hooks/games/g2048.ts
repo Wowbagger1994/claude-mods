@@ -13,22 +13,27 @@ export type Game2048 = { grid: Grid; score: number; isOver: boolean; hasWon: boo
 
 export const WIN_TILE = 2048
 
-/** One row slid to the left: tiles packed, equal neighbours merged once, and the points the merges made. */
-export const slideRow = (row: number[]): { row: number[]; gained: number } => {
+type Packed = { value: number; isMerged: boolean }
+
+/** The tiles of a row packed to the left, equal neighbours merged once: each says whether it is a merge. */
+const packRow = (row: number[]): Packed[] => {
   const tiles = row.filter(n => n !== 0)
-  const merged: number[] = []
-  let gained = 0
+  const out: Packed[] = []
   for (let i = 0; i < tiles.length; i++) {
     const a = tiles[i]!
-    if (a === tiles[i + 1]) {
-      merged.push(a * 2)
-      gained += a * 2
-      i++
-    } else {
-      merged.push(a)
-    }
+    const isMerged = a === tiles[i + 1]
+    out.push({ value: isMerged ? a * 2 : a, isMerged })
+    if (isMerged) i++
   }
-  return { row: [...merged, ...Array<number>(row.length - merged.length).fill(0)], gained }
+  return out
+}
+
+const padded = (values: number[], length: number): number[] => [...values, ...Array<number>(length - values.length).fill(0)]
+
+/** One row slid to the left: tiles packed, equal neighbours merged once, and the points the merges made. */
+export const slideRow = (row: number[]): { row: number[]; gained: number } => {
+  const packed = packRow(row)
+  return { row: padded(packed.map(t => t.value), row.length), gained: packed.reduce((sum, t) => sum + (t.isMerged ? t.value : 0), 0) }
 }
 
 const transpose = (g: Grid): Grid => g[0]!.map((_, c) => g.map(row => row[c]!))
@@ -52,6 +57,12 @@ export const slide = (grid: Grid, dir: Direction): { grid: Grid; gained: number;
     gained: rows.reduce((sum, r) => sum + r.gained, 0),
     hasMoved: out.some((row, r) => row.some((n, c) => n !== grid[r]![c])),
   }
+}
+
+/** Where a slide merges tiles: 1 on each cell a merged tile lands on, 0 elsewhere. */
+export const mergesOf = (grid: Grid, dir: Direction): Grid => {
+  const view = VIEWS[dir]
+  return view.from(view.to(grid).map(row => padded(packRow(row).map(t => (t.isMerged ? 1 : 0)), row.length)))
 }
 
 const addTile = (grid: Grid, rng: Rng): [Grid, Rng] => {

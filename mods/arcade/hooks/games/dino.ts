@@ -20,6 +20,8 @@ export type Dino = {
   score: number
   isOver: boolean
   rng: Rng
+  /** The room the arcade gave the game, for the drawing only; absent, the least room. */
+  screen?: { columns: number; rows: number }
 }
 
 /** The runner (Claude's mascot): its left column and its size in cells, as drawn. */

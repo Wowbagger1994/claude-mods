@@ -22,13 +22,16 @@ const ticks = (p: Play, ms: number): Step[] =>
   }, [])
 
 describe('menu', () => {
-  test('moves the cursor round the eight games and starts the one picked', () => {
+  test('moves the cursor round the eleven games and starts the one picked, by number or letter', () => {
     const p = newPlay(PROPS)
 
     expect(keys(p, 'down', 'down').cursor).toBe(2)
-    expect(keys(p, 'up').cursor).toBe(7)
+    expect(keys(p, 'up').cursor).toBe(10)
     expect(keys(p, '8')).toMatchObject({ screen: 'playing', game: 'typing' })
-    expect(keys(p, '9').screen).toBe('menu')
+    expect(keys(p, '9')).toMatchObject({ screen: 'playing', game: 'breakout' })
+    expect(keys(p, 'b')).toMatchObject({ screen: 'playing', game: 'maze' })
+    expect(keys(p, 'c').screen).toBe('menu')
+    expect(keys(p, '0').screen).toBe('menu')
     expect(keys(p, 'down', 'return')).toMatchObject({ screen: 'playing', game: '2048' })
     expect(keys(p, '3')).toMatchObject({ screen: 'playing', game: 'dino' })
   })

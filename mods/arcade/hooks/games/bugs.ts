@@ -1,4 +1,4 @@
-import { pack } from '../draw'
+import { drawBugs } from './bugs-draw'
 import type { Rng } from './rng'
 import { nextInt } from './rng'
 import type { GameDef, Row, Span } from './types'
@@ -6,8 +6,8 @@ import type { GameDef, Row, Span } from './types'
 /** A bug in a cell of the keypad grid (1–9), and how long it has been there. */
 export type Bug = { cell: number; age: number; life: number }
 
-/** The last press, shown on its cell for a moment: a hit or a miss. */
-export type Flash = { cell: number; isHit: boolean; left: number }
+/** The last press, shown on its cell for a moment: a hit, with the points it made, or a miss. */
+export type Flash = { cell: number; isHit: boolean; points: number; left: number }
 
 export type Bugs = {
   bugs: Bug[]
@@ -20,8 +20,9 @@ export type Bugs = {
   lives: number
   score: number
   flash: Flash | null
-  /** Columns of room, to center the grid. */
+  /** Columns of room, to center the grid; rows of room, to pick tall cells or short ones. */
   columns: number
+  rows: number
   isOver: boolean
   rng: Rng
 }
@@ -32,7 +33,7 @@ export const HIT_POINTS = 10
 /** Extra points for a bug hit within the first third of its life. */
 export const FAST_BONUS = 5
 const FIRST_SPAWN_MS = 600
-const FLASH_MS = 250
+const FLASH_MS = 400
 /** A bug lives this long at the start, and this long at the end of the round. */
 const LIFE_START_MS = 1_600
 const LIFE_END_MS = 700
@@ -47,7 +48,10 @@ const ramp = (elapsed: number, start: number, end: number) => start + (end - sta
 export const lifeAt = (elapsed: number): number => Math.round(ramp(elapsed, LIFE_START_MS, LIFE_END_MS))
 export const spawnGapAt = (elapsed: number): number => Math.round(ramp(elapsed, SPAWN_START_MS, SPAWN_END_MS))
 
-export const newBugs = (columns: number, rng: Rng): Bugs => ({
+/** Rows the tall grid takes: the time bar and three rows of five-row cells. */
+export const ROOMY_ROWS = 16
+
+export const newBugs = (columns: number, rng: Rng, rows = ROOMY_ROWS): Bugs => ({
   bugs: [],
   timeLeft: ROUND_MS,
   elapsed: 0,
@@ -56,6 +60,7 @@ export const newBugs = (columns: number, rng: Rng): Bugs => ({
   score: 0,
   flash: null,
   columns,
+  rows,
   isOver: false,
   rng,
 })
@@ -93,64 +98,17 @@ export const pressBugs = (g: Bugs, key: string): Bugs => {
   const cell = Number(key)
   if (g.isOver || !/^[1-9]$/.test(key)) return g
   const bug = g.bugs.find(b => b.cell === cell)
-  if (bug === undefined) return end({ ...g, lives: g.lives - 1, flash: { cell, isHit: false, left: FLASH_MS } })
+  if (bug === undefined) return end({ ...g, lives: g.lives - 1, flash: { cell, isHit: false, points: 0, left: FLASH_MS } })
   const points = HIT_POINTS + (bug.age < bug.life / 3 ? FAST_BONUS : 0)
   return {
     ...g,
     bugs: g.bugs.filter(b => b.cell !== cell),
     score: g.score + points,
-    flash: { cell, isHit: true, left: FLASH_MS },
+    flash: { cell, isHit: true, points, left: FLASH_MS },
   }
 }
 
-const CELL_WIDTH = 11
-const GUTTER = 2
-const EMPTY_BG = '#262626'
-const HIT_BG = '#166534'
-const MISS_BG = '#7f1d1d'
-const BUG_COLOR = '#c084fc'
-const OLD_BUG_COLOR = '#ef4444'
-const LABEL = '#737373'
-/** A bug, two rows of one-column glyphs. */
-const BUG_ART = ['╲▄█▄╱', '╱▀█▀╲']
-/** The keypad's rows, top first: 7 8 9 over 4 5 6 over 1 2 3. */
-const KEYPAD = [
-  [7, 8, 9],
-  [4, 5, 6],
-  [1, 2, 3],
-]
-
-const centered = (text: string, width: number) => {
-  const left = Math.floor((width - text.length) / 2)
-  return ' '.repeat(left) + text + ' '.repeat(width - left - text.length)
-}
-
-/** One of the three text rows of a cell. */
-const cellLine = (g: Bugs, cell: number, line: number): Span => {
-  const bug = g.bugs.find(b => b.cell === cell)
-  const flash = g.flash?.cell === cell ? g.flash : null
-  const bg = flash === null ? EMPTY_BG : flash.isHit ? HIT_BG : MISS_BG
-  if (line === 0) return { text: ` ${cell}`.padEnd(CELL_WIDTH), fg: LABEL, bg }
-  if (bug === undefined) return { text: ' '.repeat(CELL_WIDTH), bg }
-  // A bug about to escape turns red.
-  const fg = bug.age > (bug.life * 2) / 3 ? OLD_BUG_COLOR : BUG_COLOR
-  return { text: centered(BUG_ART[line - 1] ?? '', CELL_WIDTH), fg, bg, bold: true }
-}
-
-/** The 3×3 grid, numbered as the keypad, centered in the room. */
-export const drawBugs = (g: Bugs): Row[] => {
-  const width = CELL_WIDTH * 3 + GUTTER * 2
-  const pad = ' '.repeat(Math.max(0, Math.floor((g.columns - width) / 2)))
-  return KEYPAD.flatMap((cells, r) => {
-    const lines = [0, 1, 2].map(line =>
-      pack([
-        { text: pad },
-        ...cells.flatMap((cell, i): Span[] => (i === 0 ? [cellLine(g, cell, line)] : [{ text: ' '.repeat(GUTTER) }, cellLine(g, cell, line)])),
-      ]),
-    )
-    return r < KEYPAD.length - 1 ? [...lines, [{ text: '' }]] : lines
-  })
-}
+export { drawBugs }
 
 export const bugsStatus = (g: Bugs): string =>
   `⏱ ${Math.ceil(g.timeLeft / 1000)} s · ${'♥'.repeat(Math.max(0, g.lives))}${'♡'.repeat(LIVES - Math.max(0, g.lives))}`
@@ -159,11 +117,11 @@ export const BUGS: GameDef<Bugs> = {
   id: 'bugs',
   name: 'Acchiappa il bug',
   keys: 'premi il numero della cella col bug (1–9, come il tastierino)',
-  create: ctx => newBugs(ctx.columns, ctx.rng),
+  create: ctx => newBugs(ctx.columns, ctx.rng, ctx.rows),
   key: pressBugs,
   tick: tickBugs,
   isOver: g => g.isOver,
   score: g => g.score,
-  draw: drawBugs,
+  draw: g => drawBugs(g),
   status: bugsStatus,
 }
